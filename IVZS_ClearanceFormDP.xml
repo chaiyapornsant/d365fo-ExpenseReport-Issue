@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AxClass xmlns:i="http://www.w3.org/2001/XMLSchema-instance">
+	<Name>IVZS_ClearanceFormDP</Name>
+	<SourceCode>
+		<Declaration><![CDATA[
+[SRSReportParameterAttribute(classStr(IVZS_ClearanceFormContract))]
+class IVZS_ClearanceFormDP extends SrsReportDataProviderPreProcessTempDB
+{
+    IVZS_ClearanceFormTmp		tmpTable;
+    IVZS_ClearanceFormLineTmp	tmpLineTable;
+
+}
+]]></Declaration>
+		<Methods>
+			<Method>
+				<Name>getIVZS_ClearanceFormTmp</Name>
+				<Source><![CDATA[
+    [SrsReportDataSet(tableStr(IVZS_ClearanceFormTmp))]
+    public IVZS_ClearanceFormTmp getIVZS_ClearanceFormTmp()
+    {
+        select tmpTable;
+        return tmpTable;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>getIVZS_ClearanceFormLineTmp</Name>
+				<Source><![CDATA[
+    [SrsReportDataSet(tableStr(IVZS_ClearanceFormLineTmp))]
+    public IVZS_ClearanceFormLineTmp getIVZS_ClearanceFormLineTmp()
+    {
+        select tmpLineTable;
+        return tmpLineTable;
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>processReport</Name>
+				<Source><![CDATA[
+    public void processReport()
+    {
+        QueryRun	qr	=	this.initQuery();
+
+		while(qr.next())
+        {
+            this.initTmpTable(qr);
+            this.initLineTmpTable();
+
+            tmpTable.insert();
+            //tmpLineTable.insert();
+        }
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initQuery</Name>
+				<Source><![CDATA[
+	QueryRun initQuery()
+    {
+        Query					q	=	new Query();
+        QueryBuildDataSource	qbdsTrvExpTable, qbdsTrvExpTrans;
+        QueryRun				qr;
+        TrvExpTrans				_trvExpTrans;
+
+        IVZS_ClearanceFormContract	contract	=	this.parmDataContract();
+
+		select firstonly _trvExpTrans
+            where _trvExpTrans.ExpNumber == contract.parmTrvExpNumber();
+
+        qbdsTrvExpTable				=	q.addDataSource(tableNum(TrvExpTable));
+        //qbdsTrvExpTrans				=	qbdsTrvExpTable.addDataSource(tableNum(TrvExpTrans));
+
+		if(contract.parmTrvExpNumber())
+        {
+            QueryBuildRange		qbr, qbrTrans;
+
+            qbr			=	qbdsTrvExpTable.addRange(fieldNum(TrvExpTable, ExpNumber));
+            qbr.value(contract.parmTrvExpNumber());
+            /*qbrTrans	=	qbdsTrvExpTrans.addRange(fieldNum(TrvExpTrans, ExpNumber));
+            qbr.value(contract.parmTrvExpNumber());*/
+        }
+
+        qr	=	new QueryRun(q);
+
+        return	qr;
+
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initTmpTable</Name>
+				<Source><![CDATA[
+	void initTmpTable(QueryRun _qr)
+    {
+        TrvExpTrans						_trvExpTrans;
+        HcmWorker						_hcmWorker;
+        DirPartyTable					_dirParty;
+        //IVZ_TrvExpenseInvoiceInfo		_trvExpInvoiceInfo;
+        DimensionAttributeValueSetItem	dimensionAttributeValueSetItem;
+        DimensionAttributeValue			dimensionAttributeValue;
+        DimensionAttribute				dimensionAttribute;
+        workflowTrackingStatusTable		workflowTrackingStatusTable;
+        workflowTrackingTable			workflowTrackingTable;
+        str								_dimensionDepartment, _dimensionDivision;
+        WorkflowTrackingCommentTable	trackingCommentTable;
+        TrvCashAdvance					_trvCashAdvance;
+        VendTable						_vendTable;
+        int								_lv;
+
+        TrvExpTable				_trvExpTable	=	_qr.get(tableNum(TrvExpTable));
+        //TrvExpTrans				trvExpTrans		=	_qr.get(tableNum(TrvExpTrans));
+
+        select dimensionAttributeValueSetItem
+            where dimensionAttributeValueSetItem.DimensionAttributeValueSet == _trvExpTable.DefaultDimension
+            join dimensionAttributeValue
+            where dimensionAttributeValue.RecId == dimensionAttributeValueSetItem.DimensionAttributeValue
+            join dimensionAttribute
+            where dimensionAttribute.RecId == dimensionAttributeValue.DimensionAttribute
+            && dimensionAttribute.Name == "FD09Taxbranch";
+
+        tmpTable.IVZS_CompanyName			=	LogisticsLocation::find(TaxBranch::findByCode(dimensionAttributeValue.DisplayValue).IVZS_LogisticsLocationEng).Description;
+        tmpTable.IVZS_Number				=	_trvExpTable.ExpNumber;
+        tmpTable.IVZS_VendAccount			=	_trvExpTable.VendAccount;
+        tmpTable.IVZS_PurposedForAdvance	=	_trvExpTable.Txt1;
+        tmpTable.IVZS_Date					=	DateTimeUtil::date(_trvExpTable.CreatedDateTime);
+        //tmpTable.IVZS_CompanyName			=	CompanyInfo::findDataArea("RBSC").Name;
+        tmpTable.IVZS_TotalExpReportAmount	=	_trvExpTable.total();
+
+		select firstonly _vendTable
+			where _vendTable.DataAreaId == _trvExpTable.ReferenceDataAreaId
+            && _vendTable.AccountNum == _trvExpTable.VendAccount;
+
+        tmpTable.IVZS_VendName				=	_vendTable.vendorName();
+
+		/*switch(_trvExpTable.Txt2)
+        {
+            case "ADVANCE":
+                //tmpTable.IVZS_ReportName	=	"ADVANCE FORM";
+                tmpTable.IVZS_ReportName	=	"@IVZS_RBSC:CPS00011";
+                break;
+            case "CHQ REQ":
+                //tmpTable.IVZS_ReportName	=	"CHQ REQ FORM";
+                tmpTable.IVZS_ReportName	=	"@IVZS_RBSC:CPS00012";
+                break;
+            case "PETTY CASH":
+                //tmpTable.IVZS_ReportName	=	"PETTY CASH FORM";
+                tmpTable.IVZS_ReportName	=	"@IVZS_RBSC:CPS00013";
+                break;
+            case "PETTY CASH IOU":
+                //tmpTable.IVZS_ReportName	=	"PETTY CASH IOU FORM";
+                tmpTable.IVZS_ReportName	=	"@IVZS_RBSC:CPS00014";
+                break;
+
+        }*/
+
+        tmpTable.IVZS_ReportName	=	strFmt("%1 %2", _trvExpTable.Txt2, "FORM");
+
+        _hcmWorker			=	HcmWorker::find(_trvExpTable.CreatingWorker);
+
+        tmpTable.IVZS_CreatedName			=	DirPartyTable::getName(_hcmWorker.Person);
+
+		select firstonly _trvExpTrans
+            where _trvExpTrans.ExpNumber == _trvExpTable.ExpNumber
+			join _trvCashAdvance
+            where _trvCashAdvance.RecId == _trvExpTrans.CashAdvanceRecId;
+
+        tmpTable.IVZS_AdvanceNumber			=	_trvCashAdvance.CashAdvanceNumber;
+        //tmpTable.IVZS_ApprovalStatus		=	_trvExpTrans.ApprovalStatus;
+        tmpTable.IVZS_ApprovalStatus		=	_trvExpTable.ApprovalStatus;
+
+        select dimensionAttributeValueSetItem
+            where dimensionAttributeValueSetItem.DimensionAttributeValueSet == _trvExpTable.DefaultDimension
+			join dimensionAttributeValue
+			where dimensionAttributeValue.RecId == dimensionAttributeValueSetItem.DimensionAttributeValue
+			join dimensionAttribute
+            where dimensionAttribute.RecId == dimensionAttributeValue.DimensionAttribute
+            && dimensionAttribute.Name == "FD03Department";
+
+        _dimensionDepartment	=	dimensionAttributeValue.getName();
+
+        select dimensionAttributeValueSetItem
+            where dimensionAttributeValueSetItem.DimensionAttributeValueSet == _trvExpTable.DefaultDimension
+			join dimensionAttributeValue
+            where dimensionAttributeValue.RecId == dimensionAttributeValueSetItem.DimensionAttributeValue
+            join dimensionAttribute
+            where dimensionAttribute.RecId == dimensionAttributeValue.DimensionAttribute
+            && dimensionAttribute.Name == "FD02Division";
+
+        _dimensionDivision		=	dimensionAttributeValue.getName();
+
+        tmpTable.IVZS_DepartmentAndDivision		=	strFmt("%1/%2", _dimensionDepartment, _dimensionDivision);
+
+		//fromworkflow
+        _lv = 1;	
+
+        while select workflowtrackingstatustable
+			join workflowtrackingtable
+            order by workflowtrackingtable.CreatedDateTime
+            where workflowtrackingstatustable.ContextRecId == _trvExpTable.RecId
+            && workflowTrackingStatusTable.DocumentType == "Expense reports"
+            && workflowtrackingstatustable.TrackingStatus != WorkflowTrackingStatus::Cancelled
+			&& workflowtrackingtable.TrackingContext == workflowtrackingcontext::WorkItem
+			&& workflowtrackingtable.TrackingType == workflowtrackingtype::Approval
+			&& workflowtrackingtable.WorkflowTrackingStatusTable == workflowtrackingstatustable.recid
+        {
+            //MOD BY CPS : 20220217 : P24659 : Start
+            if(workflowTrackingTable)
+            {
+                switch(_lv)
+                {
+                    case 1 :
+                        tmpTable.IVZS_AccountingAdvanceName		=	DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).Name;
+                        tmpTable.IVZS_ApproveDateLv1			=	DateTimeUtil::date(workflowTrackingTable.CreatedDateTime);
+                        tmpTable.IVZS_ApproveTitle1				=	HcmWorker::findByPerson(DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).RecId).title();
+                        break;
+                    case 2 :
+                        tmpTable.IVZS_DepartmentManagerName		=	DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).Name;
+                        tmpTable.IVZS_ApproveDateLv2			=	DateTimeUtil::date(workflowTrackingTable.CreatedDateTime);
+                        tmpTable.IVZS_ApproveTitle2				=	HcmWorker::findByPerson(DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).RecId).title();
+                        break;
+                    case 3 :
+                        tmpTable.IVZS_AccountingSupervisorName	=	DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).Name;
+                        tmpTable.IVZS_ApproveDateLv3			=	DateTimeUtil::date(workflowTrackingTable.CreatedDateTime);
+                        tmpTable.IVZS_ApproveTitle3				=	HcmWorker::findByPerson(DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).RecId).title();
+                        break;
+                    case 4 :
+                        tmpTable.IVZS_AccountingManagerName		=	DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).Name;
+                        tmpTable.IVZS_ApproveDateLv4			=	DateTimeUtil::date(workflowTrackingTable.CreatedDateTime);
+                        tmpTable.IVZS_ApproveTitle4				=	HcmWorker::findByPerson(DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).RecId).title();
+                        break;
+                    case 5 :
+                        tmpTable.IVZS_ApproverName				=	DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).Name;
+                        tmpTable.IVZS_ApproveDateLv5			=	DateTimeUtil::date(workflowTrackingTable.CreatedDateTime);
+                        tmpTable.IVZS_ApproveTitle5				=	HcmWorker::findByPerson(DirPerson::find(DirPersonUser::find(workflowTrackingTable.User).PersonParty).RecId).title();
+                        break;
+                }
+                _lv++;
+            }
+            //MOD BY CPS : 20220217 : P24659 : End
+        }
+
+		/*if(_lv >= 2 && _lv <= 5)
+        {
+			switch(_lv)
+            {
+                case 2 :
+                    tmpTable.IVZS_ApproverName				=	tmpTable.IVZS_AccountingAdvanceName;
+                    tmpTable.IVZS_ApproveDateLv5			=	tmpTable.IVZS_ApproveDateLv1;
+                    tmpTable.IVZS_ApproveTitle5				=	tmpTable.IVZS_ApproveTitle1;
+                    tmpTable.IVZS_AccountingAdvanceName		=	"";
+                    tmpTable.IVZS_ApproveDateLv1			=	dateNull();
+                    tmpTable.IVZS_ApproveTitle1				=	"";
+                    break;
+                case 3 :
+                    tmpTable.IVZS_ApproverName				=	tmpTable.IVZS_DepartmentManagerName;
+                    tmpTable.IVZS_ApproveDateLv5			=	tmpTable.IVZS_ApproveDateLv2;
+                    tmpTable.IVZS_ApproveTitle5				=	tmpTable.IVZS_ApproveTitle2;
+                    tmpTable.IVZS_DepartmentManagerName		=	"";
+                    tmpTable.IVZS_ApproveDateLv2			=	dateNull();
+                    tmpTable.IVZS_ApproveTitle2				=	"";
+                    break;
+                case 4 :
+                    tmpTable.IVZS_ApproverName				=	tmpTable.IVZS_AccountingSupervisorName;
+                    tmpTable.IVZS_ApproveDateLv5			=	tmpTable.IVZS_ApproveDateLv3;
+                    tmpTable.IVZS_ApproveTitle5				=	tmpTable.IVZS_ApproveTitle3;
+                    tmpTable.IVZS_AccountingSupervisorName	=	"";
+                    tmpTable.IVZS_ApproveDateLv3			=	dateNull();
+                    tmpTable.IVZS_ApproveTitle3				=	"";
+                    break;
+                case 5 :
+                    tmpTable.IVZS_ApproverName				=	tmpTable.IVZS_AccountingManagerName;
+                    tmpTable.IVZS_ApproveDateLv5			=	tmpTable.IVZS_ApproveDateLv4;
+                    tmpTable.IVZS_ApproveTitle5				=	tmpTable.IVZS_ApproveTitle4;
+                    tmpTable.IVZS_AccountingManagerName		=	"";
+                    tmpTable.IVZS_ApproveDateLv4			=	dateNull();
+                    tmpTable.IVZS_ApproveTitle4				=	"";
+                    break;
+            }
+        }*/
+
+        if(_trvExpTable.ApprovalStatus != TrvAppStatus::Pending)
+        {
+            if(_lv >= 2 && _lv <= 5)
+            {
+                switch(_lv)
+                {
+                    case 2 :
+                        tmpTable.IVZS_ApproverName				=	tmpTable.IVZS_AccountingAdvanceName;
+                        tmpTable.IVZS_ApproveDateLv5			=	tmpTable.IVZS_ApproveDateLv1;
+                        tmpTable.IVZS_ApproveTitle5				=	tmpTable.IVZS_ApproveTitle1;
+                        tmpTable.IVZS_AccountingAdvanceName		=	"";
+                        tmpTable.IVZS_ApproveDateLv1			=	dateNull();
+                        tmpTable.IVZS_ApproveTitle1				=	"";
+                        break;
+                    case 3 :
+                        tmpTable.IVZS_ApproverName				=	tmpTable.IVZS_DepartmentManagerName;
+                        tmpTable.IVZS_ApproveDateLv5			=	tmpTable.IVZS_ApproveDateLv2;
+                        tmpTable.IVZS_ApproveTitle5				=	tmpTable.IVZS_ApproveTitle2;
+                        tmpTable.IVZS_DepartmentManagerName		=	"";
+                        tmpTable.IVZS_ApproveDateLv2			=	dateNull();
+                        tmpTable.IVZS_ApproveTitle2				=	"";
+                        break;
+                    case 4 :
+                        tmpTable.IVZS_ApproverName				=	tmpTable.IVZS_AccountingSupervisorName;
+                        tmpTable.IVZS_ApproveDateLv5			=	tmpTable.IVZS_ApproveDateLv3;
+                        tmpTable.IVZS_ApproveTitle5				=	tmpTable.IVZS_ApproveTitle3;
+                        tmpTable.IVZS_AccountingSupervisorName	=	"";
+                        tmpTable.IVZS_ApproveDateLv3			=	dateNull();
+                        tmpTable.IVZS_ApproveTitle3				=	"";
+                        break;
+                    case 5 :
+                        tmpTable.IVZS_ApproverName				=	tmpTable.IVZS_AccountingManagerName;
+                        tmpTable.IVZS_ApproveDateLv5			=	tmpTable.IVZS_ApproveDateLv4;
+                        tmpTable.IVZS_ApproveTitle5				=	tmpTable.IVZS_ApproveTitle4;
+                        tmpTable.IVZS_AccountingManagerName		=	"";
+                        tmpTable.IVZS_ApproveDateLv4			=	dateNull();
+                        tmpTable.IVZS_ApproveTitle4				=	"";
+                        break;
+                }
+            }
+        }
+
+    }
+
+]]></Source>
+			</Method>
+			<Method>
+				<Name>initLineTmpTable</Name>
+				<Source><![CDATA[
+	void initLineTmpTable()
+    {
+        IVZ_TrvExpenseInvoiceInfo		_trvExpInvoiceInfo;
+        TrvExpTrans						trvExpTrans;
+
+        IVZS_ClearanceFormContract	contract	=	this.parmDataContract();
+
+		while select trvExpTrans
+            where trvExpTrans.ExpNumber == contract.parmTrvExpNumber()
+        {
+            tmpLineTable.IVZS_CostType				=	trvExpTrans.CostType;
+            tmpLineTable.IVZS_Transaction			=	trvExpTrans.TransDate;
+            tmpLineTable.IVZS_Amount				=	trvExpTrans.AmountCurr;
+
+            _trvExpInvoiceInfo	=	IVZ_TrvExpenseInvoiceInfo::IVZ_Find(trvExpTrans.TableId, trvExpTrans.RecId);
+
+            tmpLineTable.IVZS_InvoiceNumber			=	_trvExpInvoiceInfo.IVZ_InvoiceId;
+            tmpLineTable.IVZS_InvoiceDate			=	_trvExpInvoiceInfo.IVZ_InvoiceDate;
+
+            tmpLineTable.insert();
+        }
+
+
+    }
+
+]]></Source>
+			</Method>
+		</Methods>
+	</SourceCode>
+</AxClass>
